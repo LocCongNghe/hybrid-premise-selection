@@ -1,0 +1,38 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Lean build outputs and per-run scratch files
+lean/.lake/
+lean/expr_output.json
+lean/input_expr.txt
+lean/.tbps-*
+
+# Generated artifacts (indexes, runs, logs, reports)
+artifacts/*
+!artifacts/.gitkeep
+
+# Large data archives downloaded from the GitHub release (data/README.md)
+data/*.xz
+data/*.gz
+data/*.tar.gz
+
+# Local-only (not pushed): benchmark inputs, internal notes, agent guidelines
+benchmarks/
+docs/
+AGENTS.md
+
+# Optional checkout of the authors' repository (fallback location for the
+# data archives used by import-data.sh)
+upstream/
+
+*.index
+*.pkl
+*.pickle
+*.log
+.DS_Store
+.vscode/

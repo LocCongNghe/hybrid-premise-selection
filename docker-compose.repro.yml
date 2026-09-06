@@ -1,0 +1,24 @@
+name: tbps-reproduction
+
+services:
+  postgres:
+    image: postgres@sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad
+    container_name: tbps-repro-postgres
+    environment:
+      POSTGRES_DB: tbps_baseline
+      POSTGRES_USER: tbps
+      POSTGRES_PASSWORD: ${TBPS_DB_PASSWORD:-tbps-local-only}
+    ports:
+      - "127.0.0.1:8923:5432"
+    shm_size: 1gb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tbps -d tbps_baseline"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - tbps_pgdata:/var/lib/postgresql/data
+
+volumes:
+  tbps_pgdata:
+    name: tbps-repro-pgdata

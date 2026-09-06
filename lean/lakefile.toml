@@ -1,0 +1,11 @@
+name = "tbps"
+version = "0.1.0"
+defaultTargets = ["TBPS"]
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.18.0"
+
+[[lean_lib]]
+name = "TBPS"

@@ -1,0 +1,102 @@
+[run]
+name = "paper-target-4.18-hybrid"
+seed = 0
+workers = 4
+candidate_limit = 1500
+output_top_k = 10
+fusion_profile = "paper"
+
+[versions]
+lean_toolchain = "leanprover/lean4:v4.18.0"
+mathlib_tag = "v4.18.0"
+mathlib_sha = "aa936c36e8484abd300577139faf8e945850831a"
+python = "3.12.3"
+postgres = "17.4-bookworm"
+postgres_digest = "sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad"
+
+[retrieval]
+wl_backend = "vec"
+wl_iterations = 3
+node_ratio = 1.2
+large_tree_node_threshold = 600
+large_tree_node_ratio = 1.8
+absolute_node_difference = 25
+tree_score_cutoff = 50
+tie_method = "competition"
+
+[teds]
+insert_cost = 1.0
+delete_cost = 1.0
+replace_cost = 0.4
+simple_node_scale = 0.2
+simple_node_prefixes = ["BVar", "FVar", "MVar", "Sort", "Const"]
+
+[fusion.paper]
+wl = 0.1
+teds = 0.3
+jaccard = 0.1
+collapse_match = 0.5
+
+[fusion.upstream_head]
+wl = 0.15
+teds = 0.40
+jaccard = 0.15
+collapse_match = 0.30
+
+[fusion.upstream_head_large_tree]
+wl = 0.15
+teds = 0.0
+jaccard = 0.15
+collapse_match = 0.30
+
+[benchmark.test_a]
+expected_queries = 100
+query_file = "benchmarks/tree_based/test_a/expressions.txt"
+label_file = "benchmarks/tree_based/test_a/premise_names.txt"
+
+[benchmark.test_b]
+expected_raw_rows = 8288
+expected_queries = 6119
+command_syntax_kind = "Lean.Parser.Command.theorem"
+source_archive = "upstream/imathwy-tbps/data/test_sets_B_C_tactic_steps.sql.gz"
+source_archive_sha256 = "a26170707fbf63cf32c4597e9f63d2b050b1c9807eb0bf1c9e88839e7b64e036"
+source_table = "tactic_step"
+split_membership_archive = "upstream/imathwy-tbps/data/test_set_B_tactic_step.sql.tar.gz"
+split_membership_archive_sha256 = "aa043a96dd494097407c0469bf39acbf84bae4e2499abad6640b58cf119987be"
+split_membership_command_kind = "Lean.Parser.Command.theorem"
+manifest = "benchmarks/tree_based/test_b/manifest.jsonl"
+exclusions = "benchmarks/tree_based/test_b/exclusions.jsonl"
+
+[database]
+host = "127.0.0.1"
+port = 8923
+dbname = "tbps_baseline"
+user = "tbps"
+password_env = "TBPS_DB_PASSWORD"
+
+# I3 — hybrid retrieval (WL + BM25 + Dense fused by weighted RRF).
+# Enabled here for the full-hybrid variant (all three retrievers). The per-retriever
+# weights are a-priori principled (chosen BEFORE evaluation, not tuned on Test A/B):
+#   WL is the paper's core structural method and the strongest single retriever (w=0.50);
+#   Dense (LeanDojo ByT5) is the complementary semantic signal that rescues WL-blind
+#       pool-miss targets (w=0.35);
+#   BM25 is the weakest lexical signal, kept as a tie-breaker/diversifier (w=0.15).
+# rrf_k=60 is the standard RRF smoothing constant. When this section is absent the
+# runner uses the plain WL-only PostgresRetriever (byte-identical to baseline-paper.toml).
+[hybrid]
+enabled = true
+retrievers = ["wl", "bm25", "dense"]
+w_wl = 0.50
+w_bm25 = 0.15
+w_dense = 0.35
+rrf_k = 60.0
+bm25_index = "artifacts/i3/bm25_index.json"
+dense_index_dir = "artifacts/i3/dense_index_clean"
+dense_model = "kaiyuy/leandojo-lean4-retriever-byt5-small"
+dense_device = "cuda"
+dense_max_length = 512
+# I3 dense space-mismatch fix (exp8): clean-query cache (query_id → clean Lean pp text) so dense
+# embeds the CLEAN query, matching the clean doc index (artifacts/i3/dense_index_clean, built from
+# artifacts/i3/dense_clean/corpus_clean.jsonl.gz). Test B state_text is already clean → cache miss
+# falls through unchanged. Probe GREEN: median target cosine 0.058→0.787, recall@10 0→1.0.
+clean_query_cache = "artifacts/i3/dense_clean/clean_query_map.jsonl"

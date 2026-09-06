@@ -1,0 +1,125 @@
+# I3 — deployed C1 hybrid config + Lean kernel reranker (Stage 3, end-to-end).
+#
+# This is configs/baseline-paper-hybrid.toml (the locked C1 deployed config: WL+BM25+Dense
+# RRF pool, dense=0/bm25=0 fusion) PLUS a [kernel] section and output_top_k=1000 so the
+# runner produces a WIDE-SAVE (full top-1000 pool per query) that Stage 3 re-ranks.
+#
+# End-to-end (one command, WSL):
+#   .venv/bin/tbps-run test-b --config configs/baseline-paper-hybrid-kernel.toml \
+#       --output artifacts/runs/test-b-kernel.jsonl --workers 4
+# writes BOTH:
+#   test-b-kernel.jsonl        (Stage 1+2 wide-save, byte-identical to the C1 baseline)
+#   test-b-kernel.kernel.jsonl (Stage 3: kernel-reranked, recomputed final_rank)
+# `tbps-run summarize --input test-b-kernel.kernel.jsonl` reports the kernel metrics.
+#
+# Or re-rank an existing wide-save without re-running retrieval/scoring:
+#   .venv/bin/tbps-run kernel-rerank --input <wide-save>.jsonl \
+#       --output <out>.kernel.jsonl --config configs/baseline-paper-hybrid-kernel.toml
+#
+# No-regression: leader-protect pins the structural leader set at rank 1 → R@1 == baseline
+# by construction. R@5/R@10 gains verified on both benchmarks (Test B full 6119 +1.31/+1.21pp;
+# Test A +8/+10pp). bonus is a-priori (sweep-verified 0.05–5.0: R@1 flat, R@5/10 saturate).
+[run]
+name = "paper-target-4.18-hybrid-kernel"
+seed = 0
+workers = 4
+candidate_limit = 1500
+# wide-save: save the full top-1000 pool per query so Stage 3 can re-rank it. (10 would
+# make every in-pool target rank ≤ 10 → meaningless R@k.) kernel.top_n (50) ≤ 1000.
+output_top_k = 1000
+fusion_profile = "paper"
+
+[versions]
+lean_toolchain = "leanprover/lean4:v4.18.0"
+mathlib_tag = "v4.18.0"
+mathlib_sha = "aa936c36e8484abd300577139faf8e945850831a"
+python = "3.12.3"
+postgres = "17.4-bookworm"
+postgres_digest = "sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad"
+
+[retrieval]
+wl_backend = "vec"
+wl_iterations = 3
+node_ratio = 1.2
+large_tree_node_threshold = 600
+large_tree_node_ratio = 1.8
+absolute_node_difference = 25
+tree_score_cutoff = 50
+tie_method = "competition"
+
+[teds]
+insert_cost = 1.0
+delete_cost = 1.0
+replace_cost = 0.4
+simple_node_scale = 0.2
+simple_node_prefixes = ["BVar", "FVar", "MVar", "Sort", "Const"]
+
+[fusion.paper]
+wl = 0.1
+teds = 0.3
+jaccard = 0.1
+collapse_match = 0.5
+
+[fusion.upstream_head]
+wl = 0.15
+teds = 0.40
+jaccard = 0.15
+collapse_match = 0.30
+
+[fusion.upstream_head_large_tree]
+wl = 0.15
+teds = 0.0
+jaccard = 0.15
+collapse_match = 0.30
+
+[benchmark.test_a]
+expected_queries = 100
+query_file = "benchmarks/tree_based/test_a/expressions.txt"
+label_file = "benchmarks/tree_based/test_a/premise_names.txt"
+
+[benchmark.test_b]
+expected_raw_rows = 8288
+expected_queries = 6119
+command_syntax_kind = "Lean.Parser.Command.theorem"
+source_archive = "upstream/imathwy-tbps/data/test_sets_B_C_tactic_steps.sql.gz"
+source_archive_sha256 = "a26170707fbf63cf32c4597e9f63d2b050b1c9807eb0bf1c9e88839e7b64e036"
+source_table = "tactic_step"
+split_membership_archive = "upstream/imathwy-tbps/data/test_set_B_tactic_step.sql.tar.gz"
+split_membership_archive_sha256 = "aa043a96dd494097407c0469bf39acbf84bae4e2499abad6640b58cf119987be"
+split_membership_command_kind = "Lean.Parser.Command.theorem"
+manifest = "benchmarks/tree_based/test_b/manifest.jsonl"
+exclusions = "benchmarks/tree_based/test_b/exclusions.jsonl"
+
+[database]
+host = "127.0.0.1"
+port = 8923
+dbname = "tbps_baseline"
+user = "tbps"
+password_env = "TBPS_DB_PASSWORD"
+
+[hybrid]
+enabled = true
+retrievers = ["wl", "bm25", "dense"]
+w_wl = 0.50
+w_bm25 = 0.15
+w_dense = 0.35
+rrf_k = 60.0
+bm25_index = "artifacts/i3/bm25_index.json"
+dense_index_dir = "artifacts/i3/dense_index_clean"
+dense_model = "kaiyuy/leandojo-lean4-retriever-byt5-small"
+dense_device = "cuda"
+dense_max_length = 512
+clean_query_cache = "artifacts/i3/dense_clean/clean_query_map.jsonl"
+
+# I3 Idea 1 — Lean kernel applicability reranker (Stage 3). Opt-in: when absent, the runner
+# is byte-identical to baseline-paper-hybrid.toml (C1). See src/tbps/kernel_rerank.py and
+# KernelConfig for field semantics. bonus is a-priori (NOT tuned). per_proc_timeout is the
+# wall-clock backstop per Lean process (pathological isDefEq that skips heartbeats is killed;
+# the single hanging query is emitted as unknown and the rest resume in a fresh process).
+[kernel]
+enabled = true
+bonus = 0.5
+top_n = 50
+mode = "full"
+per_proc_timeout = 600
+batch = 0

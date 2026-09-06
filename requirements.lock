@@ -1,0 +1,16 @@
+# Python 3.12.3 environment validated at Gates P1/P2.
+# Install through: pip install -c requirements.lock -e ".[dev]"
+iniconfig==2.3.0
+joblib==1.5.3
+numpy==1.26.4
+packaging==26.3
+pluggy==1.6.0
+psycopg2-binary==2.9.10
+pytest==8.3.5
+ruff==0.9.10
+scikit-learn==1.6.1
+scipy==1.17.1
+six==1.17.0
+threadpoolctl==3.6.0
+tqdm==4.66.1
+zss==1.2.0

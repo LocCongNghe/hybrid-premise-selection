@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tbps-reproduction"
+version = "0.1.0"
+description = "Reproduction and extension of Tree-Based Premise Selection for Lean4"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy==1.26.4",
+  "psycopg2-binary==2.9.10",
+  "scikit-learn==1.6.1",
+  "tqdm==4.66.1",
+  "zss==1.2.0",
+]
+
+[project.optional-dependencies]
+# I3 hybrid retrieval: the LeanDojo ByT5 dense retriever. Not a core dependency — the
+# baseline venv (WL+BM25) runs without it. Install separately for dense retrieval:
+#   .venv/bin/pip install -e ".[dense]"
+dense = [
+  "torch>=2.4,<2.9",
+  "transformers>=4.40,<4.50",
+]
+
+[project.scripts]
+tbps-run = "tbps.runner:main"
+tbps-build-test-b = "tbps.test_b_manifest:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
