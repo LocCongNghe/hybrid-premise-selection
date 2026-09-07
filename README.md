@@ -8,22 +8,6 @@ Premise Selection for Lean4* (Wang et al., NeurIPS 2025) on the same corpus.
 
 The repository covers everything from raw data import to per-run metrics.
 
-## Repository layout
-
-```
-lean/                 Lean project pinned to Mathlib v4.18.0
-  TBPS/ExtractExpr.lean   elaborated-Expr JSON extractor (Test A queries)
-  TBPS/CleanPP.lean       clean printer for the dense-embedding space
-  TBPS/KernelProbe.lean   streaming isDefEq applicability probe (Stage 3)
-src/tbps/             Python: retrieval, scoring, fusion, reranking, metrics
-  retrieval/bm25.py       BM25 lexical index
-  retrieval/dense.py      LeanDojo ByT5 dense index (checkpoint from HuggingFace)
-  kernel_rerank.py        Stage-3 reranking driver (resumable batches)
-configs/              run profiles (baseline, hybrid, hybrid+kernel)
-scripts/repro/        environment bootstrap, data import, index builders
-data/                 download guide for the upstream SQL archives and benchmark inputs
-```
-
 ## Requirements
 
 - **Ubuntu WSL2 / Linux** for the shell scripts (they check `uname`).
@@ -124,16 +108,4 @@ The same command with `test-a` reproduces the Test A kernel result. An existing
 wide-save can be re-ranked alone via `tbps-run kernel-rerank --input <wide-save>.jsonl
 --config configs/baseline-paper-hybrid-kernel.toml`.
 
-## Determinism and provenance
 
-- Ranking is fully deterministic: ties are broken by candidate name everywhere
-  (SQL `ORDER BY`, WL sort, RRF, competition ranks). Repeated full runs are
-  byte-identical.
-- Every run record carries provenance (git commit, Mathlib SHA, config path +
-  hash, fusion profile, workers).
-- Outputs are never overwritten: the runner refuses existing files unless
-  `--resume`, and resume rejects duplicate query ids.
-
-## License
-
-TBD
