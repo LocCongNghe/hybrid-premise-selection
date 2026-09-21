@@ -143,10 +143,12 @@ class KernelConfig:
     that gains R@5/R@10 on full Test B without R@1 regression.
 
     ``bonus`` is an a-priori constant (NOT tuned): the sweep 0.05–5.0 leaves R@1 flat and
-    R@5/10 saturate at ≥1.0, so any value in that range gives the same ranking. ``top_n``
-    is the candidates-per-query checked by the kernel (the target is always included even
-    if it sits below top_n in the saved top_k, reconstructed from
-    ``target_component_scores``). ``mode`` selects the kernel check strictness
+    R@5/10 saturate at ≥0.5, so any value in that range gives the same ranking. ``top_n``
+    is the candidates-per-query checked by the kernel. ``include_target`` (default
+    ``False``, the deployed leak-free setting) probes exactly the natural top-N and never
+    consults the label; setting it ``True`` appends the gold target to the probe set —
+    a measurement-only mode for applicability statistics that must never be used for
+    reported ranking metrics. ``mode`` selects the kernel check strictness
     (``full`` = whole-conclusion isDefEq, strictest and best-performing).
 
     The kernel runs as ONE Lean process over the whole batch (amortizing the ~120 s
@@ -165,6 +167,7 @@ class KernelConfig:
     bonus: float = 0.5
     top_n: int = 50
     mode: str = "full"
+    include_target: bool = False
     per_proc_timeout: int = 600
     batch: int = 0
 
@@ -350,6 +353,7 @@ def _load_kernel(data: dict | None, fusion_profile: dict) -> KernelConfig | None
         bonus=float(data.get("bonus", 0.5)),
         top_n=int(data.get("top_n", 50)),
         mode=mode,
+        include_target=bool(data.get("include_target", False)),
         per_proc_timeout=int(data.get("per_proc_timeout", 600)),
         batch=int(data.get("batch", 0)),
     )

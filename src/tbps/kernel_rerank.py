@@ -11,8 +11,9 @@ Stage 3 (``tbps-run`` auto-chains it when ``[kernel]`` is enabled in the config)
 
 Pipeline (GPU-free; needs Lean+Mathlib, run in WSL Ubuntu):
   1. Read a Stage-1+2 JSONL output (``run_batch`` product — byte-identical baseline).
-  2. For each record, build the query expression + top-N candidate names (the target is
-     always included so its applicability is measured). Test A term = raw term string from
+  2. For each record, build the query expression + top-N candidate names (exactly the
+     natural top-N by saved Stage-2 rank — the gold target is NEVER appended; a target
+     outside the window is unprobed and unboosted). Test A term = raw term string from
      ``expressions.txt`` (Lean strips the ``q(...)`` wrapper + elaborates); Test B term =
      compact ``state`` JSON from the manifest (Lean deserializes with fvars/forall-binders
      → metavars).
@@ -319,16 +320,22 @@ def run_lean_resumable(
 # --------------------------------------------------------------------------- #
 # Query loading (from Stage-1+2 records + benchmark sources)
 # --------------------------------------------------------------------------- #
-def _cands_with_target(record: dict, top_n: int) -> list[dict]:
-    """Top-N candidates by saved final rank, plus ALWAYS the target appended if absent.
+def _cands_with_target(record: dict, top_n: int, include_target: bool = False) -> list[dict]:
+    """Top-N candidates by saved final rank; optionally append the target if absent.
 
-    The target may sit outside the saved ``top_k`` (when ``output_top_k`` was small and the
-    target ranked below it) but still be in the retrieval pool — in that case its component
-    scores are in ``target_component_scores``, so we reconstruct a candidate dict from there.
-    A pool-miss target (``target_component_scores`` is None) cannot be appended.
+    ``include_target=False`` (the default, deployed) probes exactly the natural top-N and
+    never consults the label — a target outside the window is unprobed and unboosted.
+    ``include_target=True`` is a measurement-only mode (used to compute target
+    applicability statistics): the target may sit outside the saved ``top_k`` (when
+    ``output_top_k`` was small and the target ranked below it) but still be in the
+    retrieval pool — in that case its component scores are in ``target_component_scores``,
+    so we reconstruct a candidate dict from there. A pool-miss target
+    (``target_component_scores`` is None) cannot be appended.
     """
     cands = sorted(record.get("top_k", []), key=lambda c: c.get("rank", 9999))
     top = cands[:top_n]
+    if not include_target:
+        return top
     names = {c["name"] for c in top}
     target = record["target"]
     if target not in names:
@@ -342,7 +349,9 @@ def _cands_with_target(record: dict, top_n: int) -> list[dict]:
     return top
 
 
-def load_kernel_queries(records: Sequence[dict], config: RunnerConfig, top_n: int) -> list[dict]:
+def load_kernel_queries(
+    records: Sequence[dict], config: RunnerConfig, top_n: int, include_target: bool = False
+) -> list[dict]:
     """Build ``{qidx, term, target, cands, raw_target_size}`` for each record.
 
     Test A: ``term`` = the raw term string from ``expressions.txt`` (Lean strips the
@@ -351,6 +360,10 @@ def load_kernel_queries(records: Sequence[dict], config: RunnerConfig, top_n: in
     ``query_id``. Records whose expression can't be resolved (e.g. a Test B target absent
     from the manifest) are skipped (the run ADVANCES without them; their ``final_rank`` is
     left unchanged by the rerank).
+
+    ``include_target`` (default False) probes exactly the natural top-N. Setting it True
+    appends the gold target to the probe set — measurement-only mode for applicability
+    statistics; it must never be used for reported ranking metrics.
     """
     out: list[dict] = []
     for record in records:
@@ -369,7 +382,7 @@ def load_kernel_queries(records: Sequence[dict], config: RunnerConfig, top_n: in
                 term = terms[line - 1]
         if not term:
             continue
-        cands = _cands_with_target(record, top_n)
+        cands = _cands_with_target(record, top_n, include_target=include_target)
         if not cands:
             continue
         node_filter = record.get("node_filter") or {}
@@ -483,8 +496,10 @@ def rerank_record(
     """
     target = record["target"]
     # Full saved pool + target (recovered from target_component_scores if absent). This is
-    # the FULL pool the baseline ranked; reranking it gives full-pool final_rank.
-    pool = _cands_with_target(record, len(record.get("top_k", [])))
+    # the FULL pool the baseline ranked; reranking it gives full-pool final_rank. NOTE: the
+    # appended target only receives a boost if it is in kernel_map (i.e. it was inside the
+    # probed top-N) — appending here is for rank bookkeeping, not for probing.
+    pool = _cands_with_target(record, len(record.get("top_k", [])), include_target=True)
 
     if not pool:
         # nothing to rerank (empty top_k + no recoverable target); stamp provenance + leave
@@ -617,11 +632,11 @@ def run_kernel_rerank(
         file=sys.stderr,
     )
 
-    queries = load_kernel_queries(records, config, kernel.top_n)
+    queries = load_kernel_queries(records, config, kernel.top_n, kernel.include_target)
     print(
         f"[kernel] {len(queries)}/{len(records)} records have resolvable expressions "
         f"(checking top-{kernel.top_n} candidates each, mode={kernel.mode}, "
-        f"bonus={kernel.bonus})",
+        f"bonus={kernel.bonus}, include_target={kernel.include_target})",
         file=sys.stderr,
     )
 

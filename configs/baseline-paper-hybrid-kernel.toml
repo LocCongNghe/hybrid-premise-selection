@@ -17,8 +17,9 @@
 #       --output <out>.kernel.jsonl --config configs/baseline-paper-hybrid-kernel.toml
 #
 # No-regression: leader-protect pins the structural leader set at rank 1 → R@1 == baseline
-# by construction. R@5/R@10 gains verified on both benchmarks (Test B full 6119 +1.31/+1.21pp;
-# Test A +8/+10pp). bonus is a-priori (sweep-verified 0.05–5.0: R@1 flat, R@5/10 saturate).
+# by construction. R@5/R@10 gains verified on both benchmarks (Test B full 6119
+# +0.61/+0.49pp, paired-bootstrap significant; Test A +2/+2pp). bonus is a-priori
+# (sweep-verified 0.05–5.0: R@1 flat, R@5/10 saturate at ≥0.5).
 [run]
 name = "paper-target-4.18-hybrid-kernel"
 seed = 0
@@ -116,10 +117,13 @@ clean_query_cache = "artifacts/i3/dense_clean/clean_query_map.jsonl"
 # KernelConfig for field semantics. bonus is a-priori (NOT tuned). per_proc_timeout is the
 # wall-clock backstop per Lean process (pathological isDefEq that skips heartbeats is killed;
 # the single hanging query is emitted as unknown and the rest resume in a fresh process).
+# include_target = false (leak-free): the probe set is exactly the natural top-N by Stage-2
+# rank; the gold target is never appended. Set true ONLY for applicability statistics.
 [kernel]
 enabled = true
 bonus = 0.5
 top_n = 50
 mode = "full"
+include_target = false
 per_proc_timeout = 600
 batch = 0
