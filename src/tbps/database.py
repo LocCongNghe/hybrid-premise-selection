@@ -27,11 +27,10 @@ class RetrievedCandidate:
     # the legacy pure-WL path so existing records keep their shape.
     coarse_score: float | None = None
     collapse_match: float | None = None
-    # I3 dense-fusion: the ByT5 dense cosine for this candidate (0.0 if absent or when the
-    # hybrid dense path isn't enabled). None on the plain WL path keeps existing records as-is.
+    # ByT5 dense cosine for this candidate (0.0 if absent). None on the plain WL path.
     dense_score: float | None = None
-    # I3 bm25-fusion: the normalized BM25 lexical score for this candidate (0.0 if absent or
-    # when the hybrid bm25 path isn't enabled). None on the plain WL path keeps records as-is.
+    # Normalized BM25 lexical score for this candidate (0.0 if absent). None on the
+    # plain WL path.
     bm25_score: float | None = None
 
 
@@ -46,8 +45,8 @@ class RetrievalResult:
     target_in_corpus: bool
     target_has_wl: bool
     duration_seconds: dict[str, float]
-    # The candidate limit this retrieval actually used (fixed candidate_limit, the
-    # paper §4.1 adaptive-budget k, or an I2 cascade override). Logged for provenance.
+    # The candidate limit this retrieval actually used (fixed candidate_limit,
+    # adaptive-budget k, or a cascade override). Logged for provenance.
     limit: int | None = None
 
 
@@ -84,10 +83,9 @@ class PostgresRetriever:
         minimum = max(0.0, min(target_nodes / ratio, target_nodes - difference))
         maximum = max(target_nodes * ratio, target_nodes + difference)
         target_wl = wl_encoding(target_tree, self.retrieval.wl_iterations)
-        # Paper §4.1 (p.6): k = min(k_max, β·|T_query|). When adaptive_budget is off
-        # (the default), k falls back to the fixed candidate_limit, matching the legacy
-        # path. An I2 cascade override (candidate_limit_override) takes precedence over
-        # both — it is the per-query K chosen by the query-only policy.
+        # k = min(k_max, β·|T_query|) when adaptive_budget is on; otherwise the fixed
+        # candidate_limit. A cascade override (candidate_limit_override) takes
+        # precedence over both.
         if candidate_limit_override is not None:
             limit = candidate_limit_override
         elif self.retrieval.adaptive_budget:
@@ -106,13 +104,9 @@ class PostgresRetriever:
         with self._connect() as connection, connection.cursor() as cursor:
             corpus_count = self._cached_corpus_count(cursor)
             node_filtered_count = self._node_filtered_count(cursor, minimum, maximum)
-            # On the legacy pure-WL path (coarse_alpha >= 1.0, the default) the expression
-            # JSON is only needed for the final top-k winners, not for ranking — ranking is
-            # driven solely by the WL kernel. Fetching it for the whole node-filtered set
-            # (often 50k-100k rows, ~1.3KB each) dominated DB time. So we split into two
-            # phases: phase 1 fetches only name + WL encoding, ranks, and trims to top-k;
-            # phase 2 fetches expr_cse_json for just those k names. The coarse-CM path
-            # needs the expression tree of *every* candidate to compute collapse_match, so
+            # Two-phase fetch on the pure-WL path: phase 1 fetches only name + WL
+            # encoding, ranks, and trims to top-k; phase 2 fetches expr_cse_json for
+            # just those k names. The coarse-CM path needs every candidate's tree, so
             # it keeps the single-phase fetch.
             if use_coarse_cm:
                 rows = self._fetch_full(cursor, minimum, maximum)

@@ -1,22 +1,13 @@
-"""BM25 lexical retrieval over the Lean `Expr` corpus (I3 — hybrid retrieval).
+"""BM25 lexical retrieval over the Lean `Expr` corpus.
 
-Tokenization
-------------
-A "document" is a theorem's elaborated ``Expr`` (the same ``expr_cse_json`` the WL
-pipeline uses). The lexical tokens are the declaration names of every ``Const``
-node in the tree, plus namespace segments so a query mentioning ``Set.union`` also
-matches theorems built around ``Set``. This is the structural-lexical signal that
-complements the WL kernel: WL captures neighborhood shape, BM25 captures which
-named constants the goal and a candidate share.
+Tokenization: a "document" is a theorem's elaborated ``Expr`` (the same
+``expr_cse_json`` the WL pipeline uses). The lexical tokens are the declaration
+names of every ``Const`` node in the tree, plus namespace segments so a query
+mentioning ``Set.union`` also matches theorems built around ``Set``.
 
-Determinism
------------
-The query result is sorted by ``(-bm25_score, name)`` so the candidate ``name`` is
-the deterministic secondary tie-break, matching the WL path and CLAUDE.md. BM25 is
-otherwise fully deterministic (no randomness, no IDF smoothing that varies by run).
-
-This module is pure-Python and adds no new dependency (keeps ``requirements.lock``
-intact). The implementation is the standard Okapi BM25 with ``k1`` and ``b``.
+The query result is sorted by ``(-bm25_score, name)`` so the candidate ``name``
+is the deterministic secondary tie-break. Pure-Python, no new dependency; the
+implementation is the standard Okapi BM25 with ``k1`` and ``b``.
 """
 
 from __future__ import annotations
@@ -134,7 +125,7 @@ class BM25Index:
     avgdl: float = 0.0
     # Inverted index: token -> list of (doc_index, term_frequency).
     postings: dict[str, list[tuple[int, int]]] = field(default_factory=dict)
-    # BM25 parameters (standard defaults; NOT tuned on Test A/B).
+    # BM25 parameters (standard Okapi defaults).
     k1: float = 1.5
     b: float = 0.75
 

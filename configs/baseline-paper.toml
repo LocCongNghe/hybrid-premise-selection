@@ -7,8 +7,6 @@ output_top_k = 10
 fusion_profile = "paper"
 
 [versions]
-# The requested stable target. The paper says v4.18.0-rc1 in Section 5.1 but
-# says 4.18.0 in Appendix E.2; docs/paper-protocol.md records this discrepancy.
 lean_toolchain = "leanprover/lean4:v4.18.0"
 mathlib_tag = "v4.18.0"
 mathlib_sha = "aa936c36e8484abd300577139faf8e945850831a"
@@ -17,10 +15,8 @@ postgres = "17.4-bookworm"
 postgres_digest = "sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad"
 
 [retrieval]
-# WL backend: "vec" = compact int-array + precomputed L2 norm (byte-identical to
-# "dict", ~32% faster per query; see docs/runtime-optimization.md "Tối ưu 4").
-# Requires the wl_encodings_vec table, built by scripts/repro/build_wl_vec.py
-# after the phase-2 import of wl_encodings_new.
+# "vec" backend: compact int-array + precomputed L2 norm. Requires the
+# wl_encodings_vec table, built by scripts/repro/build_wl_vec.py after import.
 wl_backend = "vec"
 wl_iterations = 3
 node_ratio = 1.2
@@ -38,14 +34,12 @@ simple_node_scale = 0.2
 simple_node_prefixes = ["BVar", "FVar", "MVar", "Sort", "Const"]
 
 [fusion.paper]
-# Section 5.2, the main experiment reported in Table 1.
 wl = 0.1
 teds = 0.3
 jaccard = 0.1
 collapse_match = 0.5
 
 [fusion.upstream_head]
-# upstream/imathwy-tbps/tbps-be/search_app/process_single.py at 4110cd5.
 wl = 0.15
 teds = 0.40
 jaccard = 0.15

@@ -74,15 +74,8 @@ dbname = "tbps_baseline"
 user = "tbps"
 password_env = "TBPS_DB_PASSWORD"
 
-# I3 — hybrid retrieval (WL + BM25 + Dense fused by weighted RRF).
-# Enabled here for the full-hybrid variant (all three retrievers). The per-retriever
-# weights are a-priori principled (chosen BEFORE evaluation, not tuned on Test A/B):
-#   WL is the paper's core structural method and the strongest single retriever (w=0.50);
-#   Dense (LeanDojo ByT5) is the complementary semantic signal that rescues WL-blind
-#       pool-miss targets (w=0.35);
-#   BM25 is the weakest lexical signal, kept as a tie-breaker/diversifier (w=0.15).
-# rrf_k=60 is the standard RRF smoothing constant. When this section is absent the
-# runner uses the plain WL-only PostgresRetriever (byte-identical to baseline-paper.toml).
+# Hybrid retrieval (WL + BM25 + Dense fused by weighted RRF). When this section is
+# absent the runner uses the plain WL-only PostgresRetriever.
 [hybrid]
 enabled = true
 retrievers = ["wl", "bm25", "dense"]
@@ -95,8 +88,6 @@ dense_index_dir = "artifacts/i3/dense_index_clean"
 dense_model = "kaiyuy/leandojo-lean4-retriever-byt5-small"
 dense_device = "cuda"
 dense_max_length = 512
-# I3 dense space-mismatch fix (exp8): clean-query cache (query_id → clean Lean pp text) so dense
-# embeds the CLEAN query, matching the clean doc index (artifacts/i3/dense_index_clean, built from
-# artifacts/i3/dense_clean/corpus_clean.jsonl.gz). Test B state_text is already clean → cache miss
-# falls through unchanged. Probe GREEN: median target cosine 0.058→0.787, recall@10 0→1.0.
+# Clean-query cache (query_id → clean Lean pp text) so dense embeds text matching the
+# clean doc index. Test B state_text is already clean → cache miss falls through.
 clean_query_cache = "artifacts/i3/dense_clean/clean_query_map.jsonl"

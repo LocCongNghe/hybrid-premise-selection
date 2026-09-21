@@ -14,11 +14,10 @@ class FusionWeights:
     teds: float
     jaccard: float
     collapse_match: float
-    # I3 dense-fusion: weight on the ByT5 dense cosine carried by a candidate. Default 0.0
-    # (profiles that don't opt in are byte-identical to the pre-I3 fusion). Kept last so
-    # positional 4-arg constructions (paper upstream_head etc.) remain valid.
+    # Optional weight on the ByT5 dense cosine (default 0.0 = unused). Kept last so
+    # positional 4-arg constructions remain valid.
     dense: float = 0.0
-    # I3 bm25-fusion: weight on the normalized BM25 lexical score. Default 0.0 (opt-in only).
+    # Optional weight on the normalized BM25 lexical score (default 0.0 = unused).
     bm25: float = 0.0
 
 
@@ -32,29 +31,19 @@ class ScoreSettings:
     delete_cost: float = 1.0
     replace_cost: float = 0.4
     simple_node_prefixes: tuple[str, ...] = ("BVar", "FVar", "MVar", "Sort", "Const")
-    # I3 margin-gated dense fusion (idea D). Default None = byte-identical to pre-margin-gate.
     margin_gate: MarginGateConfig | None = None
 
 
 @dataclass(frozen=True)
 class MarginGateConfig:
-    """I3 margin-gated dense fusion (idea D, refined).
+    """Margin-gated dense fusion: per-query adaptive dense weight.
 
-    Per-query adaptive dense weight: scale the dense fusion weight DOWN when the
-    structural leader has a large margin over #2 (structural is confident -> trust
-    it, protect R@1 hits), and UP to full ``dense_weight`` when the margin is near
-    zero (structural is unconfident -> dense likely holds the answer, rescue the
-    R@10 misses). Uses only pool-wide structural properties (no target info) -> no
-    leak, deterministic.
-
-    The effective dense weight per query is::
+    The effective dense weight is::
 
         eff = dense_weight * max(ramp_floor, 1.0 - margin / margin_thresh)
 
-    where ``margin`` is (top structural score - 2nd structural score) computed with
-    the dense weight set to 0. ``margin_thresh`` is the margin above which dense is
-    ramped all the way down to ``ramp_floor``. Default disabled (byte-identical to
-    the pre-margin-gate fusion when ``enabled=False``).
+    where ``margin`` is (top structural score − 2nd structural score) computed with
+    the dense weight set to 0. Disabled by default (no effect on fusion).
     """
 
     enabled: bool = False
@@ -72,10 +61,10 @@ class CandidateScore:
     collapse_match: float
     final: float
     rank: int | None = None
-    # I3 dense-fusion: the ByT5 dense cosine used as an extra fusion feature (0.0 when not
-    # opted in). Kept last (after rank) so legacy positional 6-arg constructions stay valid.
+    # Optional ByT5 dense cosine (0.0 when unused). Kept last (after rank) so legacy
+    # positional 6-arg constructions stay valid.
     dense: float = 0.0
-    # I3 bm25-fusion: the normalized BM25 lexical score (0.0 when not opted in).
+    # Optional normalized BM25 lexical score (0.0 when unused).
     bm25: float = 0.0
 
 
@@ -118,10 +107,8 @@ def apply_margin_gate(
 ) -> list[CandidateScore]:
     """Re-fuse finals with a per-query adaptive dense weight gated on the
     structural leader's margin (see MarginGateConfig). Returns NEW CandidateScore
-    objects (rank unset); caller re-ranks via competition_rank.
-
-    No-op (returns ``scores`` unchanged) when ``settings.margin_gate`` is None or
-    disabled, preserving byte-identical behaviour for non-opt-in profiles.
+    objects (rank unset); caller re-ranks via competition_rank. No-op when
+    ``settings.margin_gate`` is None or disabled.
     """
     gate = settings.margin_gate
     if gate is None or not gate.enabled or not scores:

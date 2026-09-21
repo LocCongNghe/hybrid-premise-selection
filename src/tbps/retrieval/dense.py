@@ -1,36 +1,22 @@
-"""Dense retrieval over the Lean corpus (I3 — hybrid retrieval, dense signal).
+"""Dense retrieval over the Lean corpus.
 
 This module wraps the LeanDojo ByT5 retriever
-(``kaiyuy/leandojo-lean4-retriever-byt5-small``) as the third candidate generator alongside
+(``kaiyuy/leandojo-lean4-retriever-byt5-small``) as a candidate generator alongside
 WL (structural) and BM25 (lexical). It mirrors the ``BM25Index`` shape — a ranked
-``(name, score)`` list with ``name`` as the deterministic secondary sort key — so all three
+``(name, score)`` list with ``name`` as the deterministic secondary sort key — so the
 retrievers fuse uniformly via RRF in the hybrid pipeline.
 
-Encoding (matches the ReProver reference)
------------------------------------------
-The ByT5-small encoder maps a Lean text (a premise statement or a goal state) to a 1472-d
-vector via masked mean pooling over ``last_hidden_state``::
+Encoding: the ByT5-small encoder maps a Lean text to a 1472-d vector via masked mean
+pooling over ``last_hidden_state``. Embeddings are L2-normalized so retrieval is a
+dot product (cosine). The model is byte-level (ByT5), so ``max_length`` is in bytes;
+long statements are truncated and the truncation rate is logged.
 
-    tok = tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=...)
-    hs  = model(tok.input_ids).last_hidden_state
-    lens = tok.attention_mask.sum(dim=1)
-    emb = (hs * tok.attention_mask.unsqueeze(2)).sum(dim=1) / lens.unsqueeze(1)
+``query`` returns ``(name, cosine)`` pairs sorted by ``(-cosine, name)``. Encoding is
+deterministic given the model weights (no sampling, eval mode, no dropout).
 
-Embeddings are L2-normalized so retrieval is a dot product (cosine). The model is byte-level
-(ByT5), so ``max_length`` is in bytes; Lean statements can be long (median ~1.3k chars, p95
-~32k on the elaborated corpus), so truncation is applied and the truncation rate is logged.
-
-Determinism
------------
-``query`` returns ``(name, cosine)`` pairs sorted by ``(-cosine, name)`` — the ``name``
-secondary key matches WL/BM25 and CLAUDE.md's determinism contract. Encoding is deterministic
-given the model weights (no sampling, eval mode, no dropout).
-
-Dependencies
-------------
-``torch`` and ``transformers`` are NOT core dependencies — they live in the optional ``dense``
-extra (``pip install -e ".[dense]"``). Importing this module without them raises a clear
-``ImportError`` so the baseline venv (no torch) is never broken.
+``torch`` and ``transformers`` are NOT core dependencies — they live in the optional
+``dense`` extra (``pip install -e ".[dense]"``). Importing this module without them
+raises a clear ``ImportError`` so the baseline venv (no torch) is never broken.
 """
 
 from __future__ import annotations

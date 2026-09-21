@@ -1,44 +1,23 @@
-"""I3 — hybrid retrieval: fuse WL + BM25 + Dense via weighted Reciprocal Rank Fusion.
+"""Hybrid retrieval: fuse WL + BM25 + Dense via weighted Reciprocal Rank Fusion.
 
-``HybridRetriever`` wraps the existing ``PostgresRetriever`` (WL, structural) and adds two
-complementary candidate generators — ``BM25Index`` (lexical) and ``DenseIndex`` (semantic, the
-LeanDojo ByT5 retriever) — fusing their top-K lists with weighted RRF into a single ranked
-candidate set. It exposes the same ``retrieve() -> RetrievalResult`` interface as
-``PostgresRetriever`` so the runner's scoring stage (TEDS + jaccard + collapse + WL fusion) is
-unchanged.
+``HybridRetriever`` wraps the existing ``PostgresRetriever`` (WL, structural) and adds
+two complementary candidate generators — ``BM25Index`` (lexical) and ``DenseIndex``
+(semantic, the LeanDojo ByT5 retriever) — fusing their top-K lists with weighted RRF
+into a single ranked candidate set. It exposes the same ``retrieve() -> RetrievalResult``
+interface as ``PostgresRetriever`` so the runner's scoring stage is unchanged.
 
-Design (the candidate-pool expansion that solves pool-miss)
------------------------------------------------------------
-The baseline retrieves candidates by WL alone; targets that WL ranks below the top-1500 are
-pool-missed and unrecoverable. I3 expands the candidate POOL by taking the union of three
-retrievers' top-K, then RRF-ranks that union down to 1500 for the (unchanged) scoring stage.
-A target that WL misses but BM25 or Dense finds now enters the pool; the scoring stage can then
-rank it via TEDS/jaccard/collapse even if its WL kernel score is 0.
+RRF: ``rrf_score(name) = sum_r w_r / (k_rrf + rank_r(name))`` over the enabled
+retrievers, where rank is 1-indexed and a name absent from a retriever's list
+contributes 0 from that term. The fused list is sorted by ``(-rrf_score, name)``.
 
-RRF
----
-    rrf_score(name) = sum over retrievers r in {wl, bm25, dense}:
-        w_r / (k_rrf + rank_r(name))
-where rank is 1-indexed and a name absent from a retriever's list contributes 0 from that term.
-The fused list is sorted by ``(-rrf_score, name)`` — ``name`` is the deterministic secondary key,
-matching CLAUDE.md. The final top-``limit`` names are kept.
+``wl_score`` carries the WL cosine into ``fuse_scores``: the real WL score for names
+in the WL top-K, 0.0 for names that enter the pool only via BM25/Dense (they compete
+via TEDS/jaccard/collapse alone). ``expression_json`` for every fused candidate is
+resolved in a phase-2 DB fetch.
 
-wl_score for the scoring stage
-------------------------------
-``RetrievedCandidate.wl_score`` carries the WL cosine kernel into ``fuse_scores``. For names in
-the WL top-K this is their real WL score (already computed). For names that enter the pool only
-via BM25/Dense, ``wl_score = 0.0`` — they compete in fusion via TEDS/jaccard/collapse alone,
-which is exactly how a WL-blind target gets rescued.
-
-The ``expression_json`` for every fused candidate is resolved in a phase-2 DB fetch (the same
-``_fetch_expr_for_names`` the WL path uses), so the scoring stage has the tree it needs.
-
-Determinism
------------
-All three retriever lists are sorted by their own ``(-score, name)``; RRF preserves ``name`` as
-the final tie-break. The hybrid result is byte-stable given fixed weights, k_rrf, and seeds.
-When ``hybrid.enabled = false`` the runner uses ``PostgresRetriever`` directly (byte-identical
-to the locked baseline); this module is never imported without torch.
+Determinism: all retriever lists are sorted by their own ``(-score, name)``; RRF
+preserves ``name`` as the final tie-break. When ``hybrid.enabled = false`` the runner
+uses ``PostgresRetriever`` directly; this module is never imported without torch.
 """
 
 from __future__ import annotations
@@ -96,9 +75,7 @@ class HybridRetriever:
         total = sum(weights.values())
         if total <= 0:
             raise ValueError("hybrid weights sum to 0; at least one retriever must have weight > 0")
-        # Weights are deliberately NOT renormalized to match the fusion paper convention, EXCEPT
-        # that we guard against the disabled-retriever case above. Keep raw weights so the
-        # a-priori choice (e.g. wl=0.50, dense=0.35, bm25=0.15) is honored exactly.
+        # Weights are deliberately NOT renormalized (raw values are used as-is).
         self._weights = weights
 
     def retrieve(

@@ -93,7 +93,7 @@ def _prepare_candidate(candidate: RetrievedCandidate) -> PreparedCandidate:
 
 
 def _build_hybrid_retriever(wl_retriever: PostgresRetriever, config: HybridConfig) -> "object":
-    """Build a ``HybridRetriever`` when the I3 hybrid hybrid config is enabled.
+    """Build a ``HybridRetriever`` when the hybrid config is enabled.
 
     Loads the BM25 index and (if enabled) the dense index + encoder. The dense encoder
     imports torch lazily inside ``DenseEncoder``, so enabling hybrid without the ``dense``
@@ -140,9 +140,8 @@ class BaselineRunner:
         hybrid = config.hybrid
         if hybrid is not None and hybrid.enabled:
             self.retriever = _build_hybrid_retriever(self.retriever, hybrid)
-            # I3 dense space-mismatch fix: load the clean-query cache (query_id → clean Lean
-            # statement text) so dense embeds the CLEAN text, matching the clean doc space. Test B
-            # `state_text` is already clean, so it passes through unchanged (cache miss → raw text).
+            # Optional clean-query cache (query_id → clean Lean statement text) so dense
+            # embeds text matching the clean document space.
             self._clean_query_map: dict[str, str] = {}
             if hybrid.clean_query_cache is not None:
                 cache_path = hybrid.clean_query_cache
@@ -206,12 +205,9 @@ class BaselineRunner:
             "ratio_node_count": raw_target_size,
             "candidate_limit_override": candidate_limit_override,
         }
-        # I3 hybrid: the HybridRetriever additionally needs the query text (dense) and the
-        # elaborated expr JSON (BM25 lexical tokens). The plain PostgresRetriever ignores
-        # these extra kwargs, so passing them unconditionally keeps both paths uniform.
-        # Dense space-mismatch fix: prefer the CLEAN query text (from the clean-query cache, in
-        # the same Lean-pp space as the clean doc index) over the raw `q(...)` query_text. Test B
-        # `state_text` is already clean → cache miss falls through to it unchanged.
+        # HybridRetriever additionally needs the query text (dense) and the elaborated
+        # expr JSON (BM25 lexical tokens); the plain PostgresRetriever ignores these.
+        # Prefer the clean query text from the cache when available.
         if self.config.hybrid is not None and self.config.hybrid.enabled:
             retrieval_kwargs["query_text"] = self._clean_query_map.get(
                 case.query_id, case.query_text
@@ -260,8 +256,7 @@ class BaselineRunner:
             component: sum(timing[component] for _, timing in profiled_scores)
             for component in ("teds", "jaccard", "collapse_match")
         }
-        # I3 margin-gated dense fusion: per-query adaptive dense weight gated on the
-        # structural leader's margin. No-op when margin_gate is None/disabled.
+        # Margin-gated dense fusion (no-op when margin_gate is None/disabled).
         large_tree = raw_target_size > self.config.scoring.tree_score_cutoff
         scores = apply_margin_gate(scores, settings=self.config.scoring, large=large_tree)
         ranked = competition_rank(scores)

@@ -1,32 +1,20 @@
-# I3 — deployed C1 hybrid config + Lean kernel reranker (Stage 3, end-to-end).
+# Hybrid config + Lean kernel reranker (Stage 3). This is
+# baseline-paper-hybrid.toml plus a [kernel] section and output_top_k=1000 so the
+# runner produces a WIDE-SAVE that Stage 3 re-ranks.
 #
-# This is configs/baseline-paper-hybrid.toml (the locked C1 deployed config: WL+BM25+Dense
-# RRF pool, dense=0/bm25=0 fusion) PLUS a [kernel] section and output_top_k=1000 so the
-# runner produces a WIDE-SAVE (full top-1000 pool per query) that Stage 3 re-ranks.
-#
-# End-to-end (one command, WSL):
 #   .venv/bin/tbps-run test-b --config configs/baseline-paper-hybrid-kernel.toml \
 #       --output artifacts/runs/test-b-kernel.jsonl --workers 4
-# writes BOTH:
-#   test-b-kernel.jsonl        (Stage 1+2 wide-save, byte-identical to the C1 baseline)
-#   test-b-kernel.kernel.jsonl (Stage 3: kernel-reranked, recomputed final_rank)
-# `tbps-run summarize --input test-b-kernel.kernel.jsonl` reports the kernel metrics.
+# writes test-b-kernel.jsonl (Stage 1+2) and test-b-kernel.kernel.jsonl (Stage 3).
 #
-# Or re-rank an existing wide-save without re-running retrieval/scoring:
+# Re-rank an existing wide-save without re-running retrieval/scoring:
 #   .venv/bin/tbps-run kernel-rerank --input <wide-save>.jsonl \
 #       --output <out>.kernel.jsonl --config configs/baseline-paper-hybrid-kernel.toml
-#
-# No-regression: leader-protect pins the structural leader set at rank 1 → R@1 == baseline
-# by construction. R@5/R@10 gains verified on both benchmarks (Test B full 6119
-# +0.61/+0.49pp, paired-bootstrap significant; Test A +2/+2pp). bonus is a-priori
-# (sweep-verified 0.05–5.0: R@1 flat, R@5/10 saturate at ≥0.5).
 [run]
 name = "paper-target-4.18-hybrid-kernel"
 seed = 0
 workers = 4
 candidate_limit = 1500
-# wide-save: save the full top-1000 pool per query so Stage 3 can re-rank it. (10 would
-# make every in-pool target rank ≤ 10 → meaningless R@k.) kernel.top_n (50) ≤ 1000.
+# Wide-save: the full top-1000 pool per query so Stage 3 can re-rank it.
 output_top_k = 1000
 fusion_profile = "paper"
 
@@ -112,13 +100,9 @@ dense_device = "cuda"
 dense_max_length = 512
 clean_query_cache = "artifacts/i3/dense_clean/clean_query_map.jsonl"
 
-# I3 Idea 1 — Lean kernel applicability reranker (Stage 3). Opt-in: when absent, the runner
-# is byte-identical to baseline-paper-hybrid.toml (C1). See src/tbps/kernel_rerank.py and
-# KernelConfig for field semantics. bonus is a-priori (NOT tuned). per_proc_timeout is the
-# wall-clock backstop per Lean process (pathological isDefEq that skips heartbeats is killed;
-# the single hanging query is emitted as unknown and the rest resume in a fresh process).
-# include_target = false (leak-free): the probe set is exactly the natural top-N by Stage-2
-# rank; the gold target is never appended. Set true ONLY for applicability statistics.
+# Lean kernel applicability reranker (Stage 3). See src/tbps/kernel_rerank.py and
+# KernelConfig for field semantics. include_target = false: the probe set is exactly
+# the natural top-N by Stage-2 rank; set true ONLY for applicability statistics.
 [kernel]
 enabled = true
 bonus = 0.5

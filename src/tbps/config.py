@@ -39,41 +39,24 @@ class RetrievalConfig:
     large_tree_node_ratio: float
     absolute_node_difference: int
     candidate_limit: int
-    # Paper-faithful Stage-1 options. Defaults preserve the legacy coarse path
-    # (pure WL, fixed candidate_limit) so existing configs and the golden check
-    # are unaffected unless a TOML opts in. Paper §4.1 (p.6): k = min(k_max, β·|T_query|);
-    # §4.2 (p.8): Stage 1 combines node count + collapse-match + WL.
     coarse_alpha: float = 1.0
     adaptive_budget: bool = False
     k_max: int = 1500
     budget_beta: float = 0.0
-    # WL retrieval backend. "dict" (default) = legacy JSONB dict path, byte-identical
-    # to the paper baseline. "vec" = option B: precomputed int[] + norm in
-    # wl_encodings_vec, kernel in Python via wl_kernel_vec (byte-identical, faster).
-    # "sql" = option C: cosine pushed down to SQL returning the top-k directly.
-    # Both non-default backends are byte-identical to "dict" (verified); they only
-    # change HOW the same cosine is computed/transferred, never the values.
+    # WL retrieval backend: "dict" (JSONB dict), "vec" (precomputed int[] + norm in
+    # wl_encodings_vec), or "sql" (cosine pushed down to SQL). All three compute the
+    # same cosine; they only change how it is computed/transferred.
     wl_backend: str = "dict"
 
 
 @dataclass(frozen=True)
 class CascadeConfig:
-    """I2 cost-aware adaptive cascade.
+    """Cost-aware adaptive cascade: per-query candidate limit K chosen before
+    retrieval from query-side features only (``raw_target_size``).
 
-    When ``enabled``, the runner selects a per-query candidate limit K *before*
-    retrieval, using only query-side features (``raw_target_size``), then asks the
-    retriever for exactly that many candidates and scores only them. This bounds the
-    expensive scoring/deserialization work (and the SQL LIMIT bounds the DB work) for
-    easy queries. When ``enabled`` is False (the default), behavior is unchanged:
-    a single fixed ``candidate_limit``.
-
-    ``k_bins`` are the allowed candidate limits. ``policy`` names the query-only rule;
-    currently ``"raw_size"`` picks the bin whose upper ``size_thresholds`` segment
-    contains ``raw_target_size`` (thresholds are strict upper bounds per bin, with the
-    largest bin unbounded).
-
-    To get the DB-side LIMIT saving, the experiment config must also set
-    ``[retrieval] wl_backend = "sql"``; the cascade does not switch the backend itself.
+    ``k_bins`` are the allowed candidate limits; ``policy`` names the rule
+    (``"raw_size"`` maps ``raw_target_size`` to a bin via ``size_thresholds``,
+    strict upper bounds with the largest bin unbounded).
     """
 
     enabled: bool
@@ -84,29 +67,18 @@ class CascadeConfig:
 
 @dataclass(frozen=True)
 class HybridConfig:
-    """I3 — hybrid retrieval (WL + BM25 + Dense fused by weighted RRF).
+    """Hybrid retrieval: WL + BM25 + Dense fused by weighted RRF.
 
-    ``enabled`` controls whether ``BaselineRunner`` uses ``HybridRetriever`` instead of the
-    plain ``PostgresRetriever`` (WL-only). When False (the default), behavior is byte-identical
-    to the locked baseline.
+    ``enabled`` controls whether the runner uses ``HybridRetriever`` instead of the
+    plain WL-only ``PostgresRetriever``. ``retrievers`` is the set of enabled retriever
+    names; the per-retriever RRF weights are ``w_*`` and ``rrf_k`` is the smoothing
+    constant. Paths used when the corresponding retriever is enabled: ``bm25_index``,
+    ``dense_index_dir``, ``dense_model`` (HF hub name), ``dense_device`` (auto-fallback
+    to CPU if CUDA absent).
 
-    ``retrievers`` is the ordered set of enabled retriever names (subset of ``{"wl", "bm25",
-    "dense"}``); it determines which combination participates in RRF. The per-retriever weights
-    (``w_*``) are a-priori principled values (chosen before evaluation, following the user's
-    decision), NOT tuned on Test A/B. ``rrf_k`` is the RRF smoothing constant (the paper's
-    authors use 60).
-
-    Paths used when the corresponding retriever is enabled: ``bm25_index`` (JSON+DJSONL
-    serialized ``BM25Index``), ``dense_index_dir`` (``embeddings.npy`` + ``names.json``), and
-    ``dense_model`` (HF hub name of the LeanDojo ByT5 retriever). ``dense_device`` selects the
-    encode device (auto-fallback to CPU if CUDA absent).
-
-    ``dense_max_length`` is the byte-level truncation length for BOTH index build and query
-    encoding — they MUST match so query and document embeddings live in the same space. If the
-    index is built elsewhere (e.g. Kaggle) with a different ``max_length``, set this to match
-    the build's value (recorded in the index provenance.json). Default 512 (the quality/speed
-    balance benchmarked on a 4GB GPU: ~6 docs/s; keeps theorem name + type signature + leading
-    binders).
+    ``dense_max_length`` is the byte-level truncation length for BOTH index build and
+    query encoding — they must match so query and document embeddings live in the same
+    space.
     """
 
     enabled: bool = False
@@ -120,47 +92,30 @@ class HybridConfig:
     dense_model: str = "kaiyuy/leandojo-lean4-retriever-byt5-small"
     dense_device: str = "cuda"
     dense_max_length: int = 512
-    # I3 dense space-mismatch fix: path to a JSONL cache mapping query_id → clean Lean statement
-    # text (Lean default pretty-printer, pp.all=false — the space LeanDojo ByT5 was trained on).
-    # When set, the dense retriever embeds this CLEAN text instead of the raw `q(...)` query_text,
-    # so query and document embeddings share the same clean space. Built by lean/TBPS/CleanPP.lean
-    # (queries mode) → scripts/repro/export_clean_corpus.py. When None, the raw query_text is used
-    # (the legacy mismatched behaviour — kept only for backward-compat / ablation). Test B
-    # `state_text` is already clean notation, so it passes through unchanged.
+    # Optional JSONL cache mapping query_id → clean Lean statement text (Lean default
+    # pretty-printer). When set, the dense retriever embeds this text instead of the raw
+    # query string so query and document embeddings share the same space.
     clean_query_cache: Path | None = None
 
 
 @dataclass(frozen=True)
 class KernelConfig:
-    """I3 Idea 1 — Lean kernel applicability reranker (Stage 3).
+    """Lean kernel applicability reranker (Stage 3).
 
-    When ``enabled``, after Stage 1+2 (retrieval + structural fusion) the runner runs a
-    Stage-3 post-pass: for each query it asks the Lean kernel whether each of the top-N
-    candidates' *generalized conclusion* (universal binders → metavars) is definitionally
-    equal (``isDefEq``) to the query's generalized body. Applicable non-leaders get a
-    constant ``bonus`` added to their structural score; the structural leader set is pinned
-    at rank 1 (never demoted) → R@1 == baseline by construction. This is the only mechanism
-    that gains R@5/R@10 on full Test B without R@1 regression.
+    When ``enabled``, after Stage 1+2 the runner probes whether each of the top-N
+    candidates' generalized conclusion is definitionally equal (``isDefEq``) to the
+    query's generalized body. Applicable non-leaders get a constant ``bonus`` added to
+    their structural score; the structural leader set is pinned at rank 1.
 
-    ``bonus`` is an a-priori constant (NOT tuned): the sweep 0.05–5.0 leaves R@1 flat and
-    R@5/10 saturate at ≥0.5, so any value in that range gives the same ranking. ``top_n``
-    is the candidates-per-query checked by the kernel. ``include_target`` (default
-    ``False``, the deployed leak-free setting) probes exactly the natural top-N and never
-    consults the label; setting it ``True`` appends the gold target to the probe set —
-    a measurement-only mode for applicability statistics that must never be used for
-    reported ranking metrics. ``mode`` selects the kernel check strictness
-    (``full`` = whole-conclusion isDefEq, strictest and best-performing).
+    ``include_target`` (default False) probes exactly the natural top-N; True appends
+    the gold target to the probe set (measurement-only mode for applicability
+    statistics; never use it for reported ranking metrics). ``mode`` selects the check
+    strictness (``full``/``head``/``whnf``). The kernel runs as ONE Lean process over
+    the whole batch; ``per_proc_timeout`` is the wall-clock backstop per process and
+    ``batch`` caps queries per process (0 = no cap).
 
-    The kernel runs as ONE Lean process over the whole batch (amortizing the ~120 s
-    ``import Mathlib``), mirroring the verified offline probe. ``per_proc_timeout`` is the
-    wall-clock backstop per Lean process (a pathological ``isDefEq`` that does not check
-    heartbeats is killed; the single hanging query is emitted as unknown and the rest
-    resume in a fresh process). ``batch`` caps queries per process (0 = no cap).
-
-    Default disabled (``enabled=False`` / section absent) → Stage 1+2 is byte-identical to
-    the locked baseline and the golden check passes. The leader-protect assumes
-    ``final == struct`` (dense=0/bm25=0 fusion, the deployed C1 config); enabling kernel
-    with a dense/bm25 fusion weight > 0 raises at config load.
+    Enabling kernel requires the active fusion profile to have dense=0 and bm25=0
+    (leader-protect assumes final == struct); otherwise config load raises.
     """
 
     enabled: bool = False

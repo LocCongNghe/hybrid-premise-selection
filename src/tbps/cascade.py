@@ -1,12 +1,9 @@
-"""I2 — cost-aware adaptive cascade policy.
+"""Cost-aware adaptive cascade policy.
 
 Selects a per-query candidate limit ``K`` *before* retrieval, using only query-side
-features (raw/unsimplified target tree size), so the SQL pushdown backend can return
-exactly ``K`` candidates and the expensive tree-scoring stage runs on a bounded set.
-
-The policy is deterministic and depends only on the query, never on candidate scores,
-so it does not perturb the byte-identical determinism contract of the baseline runner
-(which keys on candidate ``name`` as the secondary sort).
+features (raw/unsimplified target tree size), so the backend can return exactly ``K``
+candidates and the scoring stage runs on a bounded set. The policy is deterministic
+and depends only on the query, never on candidate scores.
 """
 
 from __future__ import annotations
